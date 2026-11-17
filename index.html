@@ -1,0 +1,256 @@
+
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>I&Z Trans TMS</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: Arial, sans-serif;
+      background: #f3f6fb;
+      color: #182b46;
+    }
+    header {
+      padding: 20px;
+      background: #102b50;
+      color: white;
+    }
+    header h2 { margin: 0; }
+    header small { color: #b9cbe2; }
+    nav {
+      display: flex;
+      overflow-x: auto;
+      gap: 8px;
+      padding: 12px;
+      background: white;
+    }
+    button {
+      border: 0;
+      border-radius: 8px;
+      padding: 11px 14px;
+      cursor: pointer;
+      font-weight: bold;
+    }
+    nav button { white-space: nowrap; }
+    .primary { background: #1765d1; color: white; }
+    main {
+      max-width: 1100px;
+      margin: auto;
+      padding: 16px;
+    }
+    .card {
+      background: white;
+      padding: 18px;
+      border-radius: 12px;
+      margin-bottom: 14px;
+      box-shadow: 0 2px 8px #0000000d;
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 12px;
+    }
+    .number {
+      font-size: 24px;
+      font-weight: bold;
+      margin-top: 8px;
+    }
+    .muted { color: #65758d; font-size: 13px; }
+    input {
+      width: 100%;
+      padding: 12px;
+      margin: 8px 0;
+      border: 1px solid #ccd5e2;
+      border-radius: 8px;
+    }
+    .hidden { display: none; }
+    @media (min-width: 750px) {
+      .grid { grid-template-columns: repeat(4, 1fr); }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h2>🚛 I&Z TRANS INC.</h2>
+    <small>Transportation Management System</small>
+  </header>
+
+  <section id="login" class="card" style="max-width:400px;margin:35px auto">
+    <h2>Employee Login</h2>
+    <input id="email" type="email" placeholder="Email" />
+    <input id="password" type="password" placeholder="Password" />
+    <button class="primary" id="signIn">Sign In</button>
+    <p id="loginMessage" class="muted"></p>
+  </section>
+
+  <section id="app" class="hidden">
+    <nav>
+      <button onclick="showPage('dashboard')">Dashboard</button>
+      <button onclick="showPage('dispatchers')">Dispatchers</button>
+      <button onclick="showPage('drivers')">Drivers</button>
+      <button onclick="showPage('loads')">Loads</button>
+      <button onclick="showPage('fuel')">Fuel</button>
+      <button onclick="showPage('repairs')">Repairs</button>
+      <button onclick="logout()">Log out</button>
+    </nav>
+    <main id="content"></main>
+  </section>
+
+  <script type="module">
+    import { createClient } from "@supabase/supabase-js";
+
+    const url = import.meta.env.VITE_SUPABASE_URL;
+    const key = import.meta.env.VITE_SUPABASE_ANON_KEY;
+    const db = url && key ? createClient(url, key) : null;
+
+    const $ = id => document.getElementById(id);
+    const money = n => Number(n || 0).toLocaleString("en-US", {
+      style: "currency", currency: "USD"
+    });
+
+    let data = {
+      dispatchers: [],
+      drivers: [],
+      loads: [],
+      fuel: [],
+      repairs: []
+    };
+
+    const tables = {
+      dispatchers: "iz_dispatchers",
+      drivers: "iz_drivers",
+      loads: "iz_loads",
+      fuel: "iz_fuel",
+      repairs: "iz_repairs"
+    };
+
+    async function loadData() {
+      for (const [name, table] of Object.entries(tables)) {
+        const result = await db.from(table).select("*");
+        if (result.error) throw result.error;
+        data[name] = result.data || [];
+      }
+    }
+
+    function dashboard() {
+      const revenue = data.loads.reduce(
+        (sum, x) => sum + Number(x.rate || 0), 0
+      );
+      const fuelCost = data.fuel.reduce(
+        (sum, x) => sum + Number(x.cost || 0), 0
+      );
+      const repairCost = data.repairs.reduce(
+        (sum, x) => sum + Number(x.parts || 0) +
+          Number(x.labor || 0), 0
+      );
+      const driverPay = data.loads.reduce(
+        (sum, x) => sum + Number(x.driver_pay || 0), 0
+      );
+      const profit = revenue - fuelCost - repairCost - driverPay;
+
+      const card = (label, value) => `
+        <div class="card">
+          <div class="muted">${label}</div>
+          <div class="number">${value}</div>
+        </div>`;
+
+      return `
+        <h2>Fleet Dashboard</h2>
+        <div class="grid">
+          ${card("Total Revenue", money(revenue))}
+          ${card("Fuel Expenses", money(fuelCost))}
+          ${card("Repair Expenses", money(repairCost))}
+          ${card("Estimated Profit", money(profit))}
+        </div>
+        <div class="card">
+          <h3>Operations</h3>
+          <p>Dispatchers: ${data.dispatchers.length}</p>
+          <p>Drivers: ${data.drivers.length}</p>
+          <p>Loads: ${data.loads.length}</p>
+          <p>Driver Pay: ${money(driverPay)}</p>
+          <p class="muted">
+            Profit excludes insurance, financing,
+            dispatcher commissions, tolls and overhead.
+          </p>
+        </div>`;
+    }
+
+    function escapeHtml(value) {
+      return String(value ?? "").replace(/[&<>"']/g, c => ({
+        "&": "&amp;", "<": "&lt;", ">": "&gt;",
+        '"': "&quot;", "'": "&#39;"
+      })[c]);
+    }
+
+    function listPage(name) {
+      const rows = data[name];
+      return `
+        <h2>${name.toUpperCase()}</h2>
+        <div class="card">
+          <h3>Records (${rows.length})</h3>
+          ${rows.map(row => `
+            <div style="border-top:1px solid #eee;padding:12px 0">
+              ${Object.entries(row)
+                .filter(([key]) => key !== "id")
+                .map(([key, value]) =>
+                  `<div><b>${escapeHtml(key)}:</b>
+                  ${escapeHtml(value)}</div>`
+                ).join("")}
+            </div>
+          `).join("") || "<p>No records yet.</p>"}
+        </div>`;
+    }
+
+    window.showPage = function(page) {
+      $("content").innerHTML =
+        page === "dashboard" ? dashboard() : listPage(page);
+    };
+
+    window.logout = async function() {
+      await db.auth.signOut();
+      location.reload();
+    };
+
+    $("signIn").onclick = async () => {
+      if (!db) {
+        $("loginMessage").textContent =
+          "Supabase environment variables are missing.";
+        return;
+      }
+
+      const { data: auth, error } =
+        await db.auth.signInWithPassword({
+          email: $("email").value,
+          password: $("password").value
+        });
+
+      if (error) {
+        $("loginMessage").textContent = error.message;
+        return;
+      }
+
+      if (auth.user) await openApp();
+    };
+
+    async function openApp() {
+      try {
+        await loadData();
+        $("login").classList.add("hidden");
+        $("app").classList.remove("hidden");
+        showPage("dashboard");
+      } catch (error) {
+        $("loginMessage").textContent = error.message;
+      }
+    }
+
+    if (db) {
+      db.auth.getSession().then(({ data: result }) => {
+        if (result.session) openApp();
+      });
+    }
+  </script>
+</body>
+</html>
